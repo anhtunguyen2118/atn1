@@ -1,0 +1,54 @@
+let stopFlag = false; // Cờ để dừng tool
+
+async function findAndClickPaymentButton() {
+    while (!stopFlag) {
+        try {
+            // Tìm nút "Tôi muốn thanh toán"
+            const paymentButton = Array.from(document.querySelectorAll('a'))
+                .find(btn => btn.textContent.includes("Tôi muốn thanh toán lệnh này"));
+
+            if (paymentButton) {
+                paymentButton.click();
+                console.log("✅ Đã click vào nút 'Tôi muốn thanh toán lệnh này'");
+
+                await new Promise(resolve => setTimeout(resolve, 300));
+
+                // Mô phỏng nhấn Enter
+                const enterEvent = new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true });
+                document.activeElement.dispatchEvent(enterEvent);
+                console.log("✅ Đã nhấn Enter");
+
+                await new Promise(resolve => setTimeout(resolve, 4000));
+
+                // Tìm và click vào nút dấu "X"
+                const closeButton = document.querySelector('.btn-icon._BrowserHeaderButton_m63td_65');
+                if (closeButton) {
+                    closeButton.click();
+                    console.log("✅ Đã click vào dấu X để đóng.");
+
+                    // Tạm dừng 10 giây trước khi tiếp tục
+                    console.log("⏸️ Đang tạm dừng 10 giây...");
+                    await new Promise(resolve => setTimeout(resolve, 4000));
+
+                } else {
+                    console.log("❗ Không tìm thấy dấu X, tiếp tục vòng lặp...");
+                }
+
+            } else {
+                console.log("❗ Chưa phát hiện nút 'Tôi muốn thanh toán lệnh này', tiếp tục kiểm tra...");
+                await new Promise(resolve => setTimeout(resolve, 1000)); // Chờ 1 giây trước khi kiểm tra lại
+            }
+        } catch (e) {
+            console.error(`❌ Lỗi xảy ra: ${e}`);
+        }
+    }
+}
+
+// Dừng tool
+function stopTool() {
+    stopFlag = true;
+    console.log("🛑 Tool đã dừng.");
+}
+
+// Bắt đầu tool
+findAndClickPaymentButton();
