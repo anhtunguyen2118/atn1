@@ -1,54 +1,312 @@
-let stopFlag = false; // Cờ để dừng tool
+import os
+import time
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service as ChromeService
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException, NoSuchElementException, WebDriverException
+import logging
+import concurrent.futures # Thêm thư viện để xử lý đa luồng
 
-async function findAndClickPaymentButton() {
-    while (!stopFlag) {
-        try {
-            // Tìm nút "Tôi muốn thanh toán"
-            const paymentButton = Array.from(document.querySelectorAll('a'))
-                .find(btn => btn.textContent.includes("Tôi muốn thanh toán lệnh này"));
+# --- CẤU HÌNH NGƯỜI DÙNG (VUI LÒNG CHỈNH SỬA CÁC GIÁ TRỊ NÀY) ---
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(threadName)s - %(levelname)s - %(message)s')
 
-            if (paymentButton) {
-                paymentButton.click();
-                console.log("✅ Đã click vào nút 'Tôi muốn thanh toán lệnh này'");
+CHROMEDRIVER_PATH = "chromedriver"
+PROFILE_PATHS = [
+    "D:\\ChromeProfiles\\Profile 1",
+    "D:\\ChromeProfiles\\Profile 2",
+    "D:\\ChromeProfiles\\Profile 3",
+    "D:\\ChromeProfiles\\Profile 4",
+    "D:\\ChromeProfiles\\Profile 5",
+    "D:\\ChromeProfiles\\Profile 6",
+    "D:\\ChromeProfiles\\Profile 7",
+    "D:\\ChromeProfiles\\Profile 8",
+    "D:\\ChromeProfiles\\Profile 9",
+    "D:\\ChromeProfiles\\Profile 10",
+    "D:\\ChromeProfiles\\Profile 11",
+    "D:\\ChromeProfiles\\Profile 12",
+    "D:\\ChromeProfiles\\Profile 13",
+    "D:\\ChromeProfiles\\Profile 14",
+    "D:\\ChromeProfiles\\Profile 15",
+    "D:\\ChromeProfiles\\Profile 16",
+    "D:\\ChromeProfiles\\Profile 17",
+    "D:\\ChromeProfiles\\Profile 18",
+    "D:\\ChromeProfiles\\Profile 19",
+    "D:\\ChromeProfiles\\Profile 20",
 
-                await new Promise(resolve => setTimeout(resolve, 300));
 
-                // Mô phỏng nhấn Enter
-                const enterEvent = new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true });
-                document.activeElement.dispatchEvent(enterEvent);
-                console.log("✅ Đã nhấn Enter");
+    # Thêm các đường dẫn đầy đủ đến user data directory của bạn ở đây
+]
 
-                await new Promise(resolve => setTimeout(resolve, 4000));
+if not PROFILE_PATHS:
+    logging.error("LỖI: Danh sách 'PROFILE_PATHS' đang trống.")
+    exit()
 
-                // Tìm và click vào nút dấu "X"
-                const closeButton = document.querySelector('.btn-icon._BrowserHeaderButton_m63td_65');
-                if (closeButton) {
-                    closeButton.click();
-                    console.log("✅ Đã click vào dấu X để đóng.");
+# Thời gian chờ
+PAGE_LOAD_TIMEOUT = 30
+CLICK_INTERVAL_SECONDS_FOR_POLLING = 1.5
+DELAY_AFTER_SUCCESSFUL_CLICK = 5
 
-                    // Tạm dừng 10 giây trước khi tiếp tục
-                    console.log("⏸️ Đang tạm dừng 10 giây...");
-                    await new Promise(resolve => setTimeout(resolve, 4000));
+# Selector cho nút "Mở"
+PARENT_DIV_SELECTOR = 'div.dialog-row-btn[data-v-8a14f92d]'
+BUTTON_TEXT_TO_FIND = 'Mở'
 
-                } else {
-                    console.log("❗ Không tìm thấy dấu X, tiếp tục vòng lặp...");
-                }
+# Số lượng profile tối đa chạy đồng thời cùng lúc
+MAX_CONCURRENT_PROFILES = 10 # Bạn có thể điều chỉnh con số này
 
-            } else {
-                console.log("❗ Chưa phát hiện nút 'Tôi muốn thanh toán lệnh này', tiếp tục kiểm tra...");
-                await new Promise(resolve => setTimeout(resolve, 1000)); // Chờ 1 giây trước khi kiểm tra lại
-            }
-        } catch (e) {
-            console.error(`❌ Lỗi xảy ra: ${e}`);
-        }
-    }
-}
+# --- CẤU HÌNH KÍCH THƯỚC VÀ VỊ TRÍ CỬA SỔ ---
+WINDOW_WIDTH = 170      # Giữ nguyên hoặc điều chỉnh nếu muốn
+WINDOW_HEIGHT = 300     # Giữ nguyên hoặc điều chỉnh nếu muốn
+START_X_POSITION = 0    # Vị trí X bắt đầu
+START_Y_POSITION = 0    # Vị trí Y bắt đầu
+WINDOW_GAP = 0         # THAY ĐỔI THÀNH 0 ĐỂ CỬA SỔ KHÍT NHAU
+MAX_WINDOWS_PER_ROW = 7 # Giữ nguyên hoặc điều chỉnh (ví dụ cho 10 cửa sổ, 2 hàng)
+# --- KẾT THÚC CẤU HÌNH NGƯỜI DÙNG ---
 
-// Dừng tool
-function stopTool() {
-    stopFlag = true;
-    console.log("🛑 Tool đã dừng.");
-}
+def initialize_driver(profile_dir_path, profile_name_for_log="N/A",
+                      win_x=None, win_y=None, width=None, height=None): # Thêm tham số vị trí, kích thước
+    logging.info(f"Đang khởi tạo trình duyệt cho: {profile_name_for_log} (Sử dụng User Data Dir: {profile_dir_path})...")
+    chrome_options = Options()
+    chrome_options.add_argument(f"--user-data-dir={profile_dir_path}")
+    chrome_options.add_experimental_option("detach", True) # Giữ trình duyệt mở
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--disable-gpu")
+    # chrome_options.add_argument("--start-maximized") # Loại bỏ để kiểm soát kích thước/vị trí
+    
+    if width and height:
+        chrome_options.add_argument(f"--window-size={width},{height}")
+    if win_x is not None and win_y is not None: # Kiểm tra is not None vì 0 là vị trí hợp lệ
+        chrome_options.add_argument(f"--window-position={win_x},{win_y}")
 
-// Bắt đầu tool
-findAndClickPaymentButton();
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    chrome_options.add_experimental_option('useAutomationExtension', False)
+
+    driver = None
+    try:
+        if CHROMEDRIVER_PATH.lower() == "chromedriver":
+            service = ChromeService()
+        else:
+            service = ChromeService(executable_path=CHROMEDRIVER_PATH)
+        driver = webdriver.Chrome(service=service, options=chrome_options)
+        try:
+            driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {
+                'source': '''Object.defineProperty(navigator, 'webdriver', {get: () => undefined});'''
+            })
+        except Exception as cdp_err:
+            logging.warning(f"Không thể thực thi CDP command cho {profile_name_for_log}: {cdp_err}")
+        logging.info(f"Đã khởi tạo trình duyệt thành công cho: {profile_name_for_log} tại vị trí ({win_x},{win_y}) kích thước ({width}x{height}).")
+        return driver
+    except WebDriverException as e:
+        logging.error(f"LỖI WebDriverException khi khởi tạo trình duyệt cho {profile_name_for_log} (User Data Dir: {profile_dir_path}): {e}")
+        if "user data directory is already in use" in str(e).lower():
+            logging.error("Gợi ý: Profile đang được sử dụng. Đóng tất cả Chrome, xóa 'lockfile' trong thư mục profile.")
+    except Exception as e:
+        logging.error(f"LỖI không xác định khi khởi tạo trình duyệt cho {profile_name_for_log} (User Data Dir: {profile_dir_path}): {e}")
+    if driver:
+        try: driver.quit() # Cố gắng đóng nếu đã tạo được một phần
+        except: pass
+    return None
+
+def click_open_button_on_page(driver, profile_name_for_log="N/A", overall_click_timeout=100):
+    # ... (Hàm này giữ nguyên như trước) ...
+    logging.info(f"[{profile_name_for_log}] Bắt đầu tìm và click nút '{BUTTON_TEXT_TO_FIND}' (timeout tối đa: {overall_click_timeout}s).")
+    start_time = time.time()
+    attempt_count = 0
+    while True:
+        current_loop_time = time.time()
+        elapsed_time = current_loop_time - start_time
+        if elapsed_time >= overall_click_timeout:
+            logging.warning(f"[{profile_name_for_log}] Đã hết {overall_click_timeout}s. Không thể click nút '{BUTTON_TEXT_TO_FIND}'.")
+            return False
+        attempt_count += 1
+        time_left_for_this_wait = overall_click_timeout - elapsed_time
+        current_wait_interval = min(CLICK_INTERVAL_SECONDS_FOR_POLLING, time_left_for_this_wait)
+        if current_wait_interval <= 0.05:
+            logging.debug(f"[{profile_name_for_log}] Thời gian còn lại quá ít ({current_wait_interval:.2f}s), dừng tìm kiếm.")
+            break
+        logging.debug(f"[{profile_name_for_log}] Lần thử {attempt_count}. Chờ div tối đa {current_wait_interval:.2f}s. Tổng thời gian: {elapsed_time:.2f}s.")
+        try:
+            parent_div = WebDriverWait(driver, current_wait_interval).until(
+                EC.visibility_of_element_located((By.CSS_SELECTOR, PARENT_DIV_SELECTOR))
+            )
+            buttons_in_parent = parent_div.find_elements(By.TAG_NAME, "a")
+            target_button = None
+            for button_candidate in buttons_in_parent:
+                if button_candidate.text.strip() == BUTTON_TEXT_TO_FIND and \
+                   button_candidate.is_displayed() and button_candidate.is_enabled():
+                    target_button = button_candidate
+                    break
+            if target_button:
+                logging.info(f"[{profile_name_for_log}] Đã tìm thấy nút '{BUTTON_TEXT_TO_FIND}', đang click...")
+                driver.execute_script("arguments[0].scrollIntoView(true); arguments[0].click();", target_button)
+                logging.info(f"[{profile_name_for_log}] ĐÃ CLICK THÀNH CÔNG nút '{BUTTON_TEXT_TO_FIND}'!")
+                time.sleep(DELAY_AFTER_SUCCESSFUL_CLICK)
+                return True
+        except (TimeoutException, NoSuchElementException):
+            logging.debug(f"[{profile_name_for_log}] Không tìm thấy div hoặc nút trong lần thử {attempt_count}.")
+        except Exception as e:
+            logging.error(f"[{profile_name_for_log}] Lỗi không mong muốn trong lần thử {attempt_count}: {e}")
+    logging.warning(f"[{profile_name_for_log}] Không thể click nút '{BUTTON_TEXT_TO_FIND}' sau {attempt_count} lần thử trong {overall_click_timeout}s.")
+    return False
+
+def process_single_profile(profile_dir_path, target_url, win_x, win_y, width, height):
+    """
+    Hàm mục tiêu cho mỗi thread: khởi tạo trình duyệt, truy cập URL, thử click, và đóng phiên.
+    """
+    profile_log_name = os.path.basename(profile_dir_path)
+    logging.info(f"Thread cho '{profile_log_name}' bắt đầu.")
+    driver = initialize_driver(profile_dir_path, profile_log_name, win_x, win_y, width, height)
+
+    if driver:
+        try:
+            logging.info(f"[{profile_log_name}] Đang điều hướng đến URL: {target_url}")
+            driver.set_page_load_timeout(PAGE_LOAD_TIMEOUT)
+            driver.get(target_url)
+            logging.info(f"[{profile_log_name}] Đã truy cập URL thành công.")
+
+            if "m.hibt.com" in target_url.lower():
+                # Đặt thời gian chờ click tối đa ở đây
+                thoi_gian_cho_click_toi_da = 150 # GIÂY - THAY ĐỔI GIÁ TRỊ NÀY NẾU MUỐN
+                
+                logging.info(f"[{profile_log_name}] Sẽ thử click nút 'Mở' trong tối đa {thoi_gian_cho_click_toi_da} giây.")
+                click_thanh_cong = click_open_button_on_page(driver, profile_log_name, overall_click_timeout=thoi_gian_cho_click_toi_da)
+                
+                if not click_thanh_cong:
+                    # Cập nhật thông báo log này để khớp với thoi_gian_cho_click_toi_da
+                    logging.warning(f"[{profile_name_for_log}] Không click được nút 'Mở' trong {thoi_gian_cho_click_toi_da} giây.")
+            else:
+                logging.info(f"[{profile_log_name}] Bỏ qua việc click nút 'Mở' vì URL không phải m.hibt.com.")
+                time.sleep(10)
+            
+        except TimeoutException:
+            logging.error(f"[{profile_log_name}] Timeout khi tải trang {target_url}.")
+        except WebDriverException as e_nav:
+            logging.error(f"[{profile_log_name}] Lỗi WebDriverException khi điều hướng/hành động: {e_nav}")
+        except Exception as e_general:
+            logging.error(f"[{profile_log_name}] Lỗi không xác định khi điều hướng/hành động: {e_general}")
+        finally:
+            logging.info(f"[{profile_log_name}] Đang đóng phiên WebDriver (cửa sổ trình duyệt sẽ vẫn mở do 'detach').")
+            try:
+                driver.quit()
+                logging.info(f"[{profile_log_name}] Đã đóng phiên WebDriver thành công.")
+            except Exception as e_quit:
+                logging.error(f"[{profile_log_name}] Lỗi khi đóng phiên WebDriver: {e_quit}")
+    else:
+        logging.warning(f"Không thể xử lý profile tại '{profile_dir_path}' do không khởi tạo được trình duyệt.")
+    logging.info(f"Thread cho '{profile_log_name}' kết thúc.")
+    return profile_log_name
+
+def display_available_profiles():
+    # ... (Giữ nguyên hàm này) ...
+    logging.info("-" * 30)
+    logging.info("Danh sách các User Data Directory (profile) đã cấu hình:")
+    if not PROFILE_PATHS:
+        logging.info("  (Không có User Data Directory nào được cấu hình)")
+        return
+    for idx, path in enumerate(PROFILE_PATHS):
+        profile_display_name = os.path.basename(path)
+        logging.info(f"  {idx + 1}. {profile_display_name} (Đường dẫn: {path})")
+    logging.info("-" * 30)
+
+
+def main():
+    if CHROMEDRIVER_PATH != "chromedriver" and not os.path.exists(CHROMEDRIVER_PATH):
+        logging.error(f"LỖI: Không tìm thấy ChromeDriver tại '{CHROMEDRIVER_PATH}'.")
+        return
+    if not PROFILE_PATHS:
+        logging.error("LỖI: Danh sách PROFILE_PATHS trống.")
+        return
+
+    display_available_profiles()
+    profiles_to_launch_paths = []
+
+    while True:
+        # ... (Logic chọn profile giữ nguyên như trước) ...
+        print("\nLựa chọn chế độ chạy:")
+        print("  1. Chạy toàn bộ các profile đã cấu hình.")
+        print("  2. Chạy các profile được chỉ định theo số thứ tự.")
+        choice = input("Nhập lựa chọn của bạn (1 hoặc 2): ").strip()
+        if choice == '1':
+            profiles_to_launch_paths = list(PROFILE_PATHS)
+            logging.info(f"Bạn đã chọn chạy toàn bộ {len(profiles_to_launch_paths)} profile(s).")
+            break
+        elif choice == '2':
+            while True:
+                profile_numbers_str = input(f"Nhập số thứ tự của các profile bạn muốn chạy (từ 1 đến {len(PROFILE_PATHS)}), cách nhau bằng dấu cách: ").strip()
+                if not profile_numbers_str: print("Bạn chưa nhập số nào. Vui lòng thử lại."); continue
+                try:
+                    selected_indices_1_based = [int(num_str) for num_str in profile_numbers_str.split()]
+                    temp_selected_paths, invalid_numbers, valid_selection_made = [], [], False
+                    for num in selected_indices_1_based:
+                        if 1 <= num <= len(PROFILE_PATHS): temp_selected_paths.append(PROFILE_PATHS[num - 1]); valid_selection_made = True
+                        else: invalid_numbers.append(num)
+                    if invalid_numbers: logging.error(f"Lỗi: Các số profile sau không hợp lệ: {invalid_numbers}"); continue
+                    if not valid_selection_made: logging.warning("Không có profile hợp lệ nào được chọn."); continue
+                    profiles_to_launch_paths = temp_selected_paths
+                    logging.info(f"Bạn đã chọn chạy {len(profiles_to_launch_paths)} profile(s): {[os.path.basename(p) for p in profiles_to_launch_paths]}")
+                    break
+                except ValueError: logging.error("Lỗi: Vui lòng chỉ nhập các số.")
+            if profiles_to_launch_paths: break
+        else: logging.warning("Lựa chọn không hợp lệ.")
+
+
+    if not profiles_to_launch_paths:
+        logging.info("Không có profile nào được chọn. Kết thúc.")
+        return
+
+    target_url = input("\nNhập đường link bạn muốn truy cập cho tất cả các profile: ").strip()
+    if not target_url: logging.error("Lỗi: Đường link không được để trống."); return
+    if not target_url.startswith(('http://', 'https://')):
+        target_url = 'https://' + target_url
+        logging.info(f"Đã tự động thêm 'https://'. URL đầy đủ: {target_url}")
+
+    num_selected_profiles = len(profiles_to_launch_paths)
+    logging.info(f"\nBắt đầu quá trình tự động hóa đồng thời cho {num_selected_profiles} profile(s) đã chọn.")
+    logging.info(f"Số lượng profile chạy đồng thời tối đa: {MAX_CONCURRENT_PROFILES}")
+    logging.info(f"Kích thước cửa sổ: {WINDOW_WIDTH}x{WINDOW_HEIGHT}, Vị trí bắt đầu: ({START_X_POSITION},{START_Y_POSITION}), Gap: {WINDOW_GAP}, Max/hàng: {MAX_WINDOWS_PER_ROW}")
+
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_CONCURRENT_PROFILES) as executor:
+        futures = []
+        for index, profile_path in enumerate(profiles_to_launch_paths):
+            # Tính toán vị trí cho cửa sổ hiện tại
+            column = index % MAX_WINDOWS_PER_ROW
+            row = index // MAX_WINDOWS_PER_ROW
+            
+            current_x = START_X_POSITION + column * (WINDOW_WIDTH + WINDOW_GAP)
+            current_y = START_Y_POSITION + row * (WINDOW_HEIGHT + WINDOW_GAP)
+            
+            logging.debug(f"Profile '{os.path.basename(profile_path)}' (index {index}) sẽ được đặt tại ({current_x},{current_y})")
+            
+            futures.append(executor.submit(process_single_profile, 
+                                           profile_path, 
+                                           target_url, 
+                                           current_x, 
+                                           current_y, 
+                                           WINDOW_WIDTH, 
+                                           WINDOW_HEIGHT))
+
+        for future in concurrent.futures.as_completed(futures):
+            try:
+                result = future.result() 
+                logging.info(f"Thread cho profile '{result}' đã hoàn thành.")
+            except Exception as exc:
+                logging.error(f"Một thread đã tạo ra lỗi: {exc}", exc_info=True)
+
+
+    logging.info("\n===================================================")
+    logging.info("HOÀN TẤT: Tất cả các tác vụ profile đã được gửi để xử lý đồng thời.")
+    logging.info("Các cửa sổ trình duyệt sẽ vẫn mở do tùy chọn 'detach'.")
+    logging.info("===================================================")
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as e_main:
+        logging.critical(f"Lỗi nghiêm trọng không mong muốn trong hàm main: {e_main}", exc_info=True)
+    finally:
+        input("Nhấn Enter để kết thúc chương trình (các trình duyệt đã mở với 'detach' sẽ không bị ảnh hưởng)...")
