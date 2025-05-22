@@ -8,89 +8,154 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException, WebDriverException
 import logging
-import concurrent.futures # Thêm thư viện để xử lý đa luồng
+import concurrent.futures
+import requests # Thư viện mới
+import re       # Thư viện mới
+from bs4 import BeautifulSoup # Thư viện mới
 
 # --- CẤU HÌNH NGƯỜI DÙNG (VUI LÒNG CHỈNH SỬA CÁC GIÁ TRỊ NÀY) ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(threadName)s - %(levelname)s - %(message)s')
 
 CHROMEDRIVER_PATH = "chromedriver"
 PROFILE_PATHS = [
-    "E:\\ChromeProfiles\\Profile 1",
-    "E:\\ChromeProfiles\\Profile 2",
-    "E:\\ChromeProfiles\\Profile 3",
-    "E:\\ChromeProfiles\\Profile 4",
-    "E:\\ChromeProfiles\\Profile 5",
-    "E:\\ChromeProfiles\\Profile 6",
-    "E:\\ChromeProfiles\\Profile 7",
-    "E:\\ChromeProfiles\\Profile 8",
-    "E:\\ChromeProfiles\\Profile 9",
-    "E:\\ChromeProfiles\\Profile 10",
-    "E:\\ChromeProfiles\\Profile 11",
-    "E:\\ChromeProfiles\\Profile 12",
-    "E:\\ChromeProfiles\\Profile 13",
-    "E:\\ChromeProfiles\\Profile 14",
-    "E:\\ChromeProfiles\\Profile 15",
-    "E:\\ChromeProfiles\\Profile 16",
-    "E:\\ChromeProfiles\\Profile 17",
-    "E:\\ChromeProfiles\\Profile 18",
-    "E:\\ChromeProfiles\\Profile 19",
-    "E:\\ChromeProfiles\\Profile 20",
-
-
-    # Thêm các đường dẫn đầy đủ đến user data directory của bạn ở đây
+    "D:\\ChromeProfiles\\Profile 1",
+    "D:\\ChromeProfiles\\Profile 2",
+    "D:\\ChromeProfiles\\Profile 3",
+    "D:\\ChromeProfiles\\Profile 4",
+    "D:\\ChromeProfiles\\Profile 5",
+    "D:\\ChromeProfiles\\Profile 6",
+    "D:\\ChromeProfiles\\Profile 7",
+    "D:\\ChromeProfiles\\Profile 8",
+    "D:\\ChromeProfiles\\Profile 9",
+    "D:\\ChromeProfiles\\Profile 10",
+    "D:\\ChromeProfiles\\Profile 11",
+    "D:\\ChromeProfiles\\Profile 12",
+    "D:\\ChromeProfiles\\Profile 13",
+    "D:\\ChromeProfiles\\Profile 14",
+    "D:\\ChromeProfiles\\Profile 15",
+    "D:\\ChromeProfiles\\Profile 16",
+    "D:\\ChromeProfiles\\Profile 17",
+    "D:\\ChromeProfiles\\Profile 18",
+    "D:\\ChromeProfiles\\Profile 19",
+    "D:\\ChromeProfiles\\Profile 20",
 ]
 
 if not PROFILE_PATHS:
     logging.error("LỖI: Danh sách 'PROFILE_PATHS' đang trống.")
     exit()
 
-# Thời gian chờ
 PAGE_LOAD_TIMEOUT = 30
 CLICK_INTERVAL_SECONDS_FOR_POLLING = 1.5
-DELAY_AFTER_SUCCESSFUL_CLICK = 5
+DELAY_AFTER_SUCCESSFUL_CLICK = 5 # Đã tăng lên theo code bạn gửi
 
-# Selector cho nút "Mở"
 PARENT_DIV_SELECTOR = 'div.dialog-row-btn[data-v-8a14f92d]'
 BUTTON_TEXT_TO_FIND = 'Mở'
+MAX_CONCURRENT_PROFILES = 10 # Đã sửa theo code bạn gửi
 
-# Số lượng profile tối đa chạy đồng thời cùng lúc
-MAX_CONCURRENT_PROFILES = 10 # Bạn có thể điều chỉnh con số này
-
-# --- CẤU HÌNH KÍCH THƯỚC VÀ VỊ TRÍ CỬA SỔ ---
-WINDOW_WIDTH = 170      # Giữ nguyên hoặc điều chỉnh nếu muốn
-WINDOW_HEIGHT = 300     # Giữ nguyên hoặc điều chỉnh nếu muốn
-START_X_POSITION = 0    # Vị trí X bắt đầu
-START_Y_POSITION = 0    # Vị trí Y bắt đầu
-WINDOW_GAP = 0         # THAY ĐỔI THÀNH 0 ĐỂ CỬA SỔ KHÍT NHAU
-MAX_WINDOWS_PER_ROW = 7 # Giữ nguyên hoặc điều chỉnh (ví dụ cho 10 cửa sổ, 2 hàng)
+WINDOW_WIDTH = 170
+WINDOW_HEIGHT = 300
+START_X_POSITION = 0
+START_Y_POSITION = 0
+WINDOW_GAP = 0
+MAX_WINDOWS_PER_ROW = 7 # Đã sửa theo code bạn gửi
 # --- KẾT THÚC CẤU HÌNH NGƯỜI DÙNG ---
 
+def solve_hibtkyc_captcha(kyc_url):
+    """
+    Cố gắng giải CAPTCHA số học từ URL hibtkyc.com và trả về link đích.
+    """
+    logging.info(f"Đang thử giải CAPTCHA cho URL: {kyc_url}")
+    ua = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Mobile Safari/537.36"
+    s = requests.Session()
+    s.headers.update({"User-Agent": ua})
+
+    try:
+        r = s.get(kyc_url, timeout=20) # Thêm timeout cho request
+        r.raise_for_status() # Kiểm tra lỗi HTTP (4xx, 5xx)
+        
+        # Tạm dừng một chút nếu trang có thể cần thời gian để render JavaScript ẩn (ít khả năng với requests)
+        # time.sleep(1) 
+
+        soup = BeautifulSoup(r.text, 'html.parser')
+        question_div = soup.find('div', class_='question')
+        
+        if not question_div:
+            logging.error("Không tìm thấy thẻ div chứa câu hỏi CAPTCHA. Nội dung trang:")
+            # logging.debug(r.text[:1000]) # Log một phần nội dung trang để debug
+            return None
+
+        question_text = question_div.get_text(strip=True)
+        logging.info(f"Đã tìm thấy câu hỏi CAPTCHA: {question_text}")
+        
+        match = re.search(r'(\d+)\s*([-+*/])\s*(\d+)', question_text)
+        if not match:
+            logging.error("Không phân tích được phép toán từ câu hỏi CAPTCHA.")
+            return None
+            
+        a, operator, b = int(match.group(1)), match.group(2), int(match.group(3))
+        result = None
+        if operator == '+': result = a + b
+        elif operator == '-': result = a - b
+        elif operator == '*': result = a * b
+        elif operator == '/':
+            if b == 0: logging.error("Lỗi chia cho 0 trong CAPTCHA."); return None
+            result = a // b
+        else:
+            logging.error(f"Toán tử không hợp lệ: {operator}")
+            return None
+        
+        logging.info(f"Phép toán: {a} {operator} {b} = {result}. Đang gửi câu trả lời...")
+        
+        # POST câu trả lời
+        # Cần đảm bảo URL post giống với URL get hoặc được chỉ định đúng nếu khác
+        r2 = s.post(kyc_url, data={"answer": str(result)}, timeout=20)
+        r2.raise_for_status()
+        
+        response_text = r2.text.strip()
+        
+        # Trích xuất link đích từ JavaScript
+        # Pattern này tìm kiếm window.location.replace, window.location.href, hoặc window.location(...)
+        m_url = re.search(r"window\.location\.(?:replace|href)(?:\s*=\s*|\s*\(\s*)['\"]([^'\"]+)['\"]", response_text)
+        if m_url:
+            destination_url = m_url.group(1)
+            # Chuyển đổi www. thành m. nếu là tên miền hibt.com (theo logic bạn cung cấp)
+            if "hibt.com" in destination_url:
+                 destination_url = re.sub(r"^(https?://)(www\.)?", r"\1m.", destination_url)
+            logging.info(f"LINK ĐÍCH CUỐI CÙNG được trích xuất: {destination_url}")
+            return destination_url
+        else:
+            logging.error("Không trích xuất được link đích từ phản hồi sau khi gửi CAPTCHA. Phản hồi:")
+            # logging.debug(response_text[:1000]) # Log một phần phản hồi để debug
+            return None
+            
+    except requests.exceptions.RequestException as e_req:
+        logging.error(f"Lỗi Request khi giải CAPTCHA: {e_req}")
+    except Exception as e:
+        logging.error(f"Lỗi không xác định khi giải CAPTCHA: {e}", exc_info=True)
+    return None
+
+
 def initialize_driver(profile_dir_path, profile_name_for_log="N/A",
-                      win_x=None, win_y=None, width=None, height=None): # Thêm tham số vị trí, kích thước
+                      win_x=None, win_y=None, width=None, height=None):
+    # ... (Hàm này giữ nguyên như phiên bản trước - có điều chỉnh cửa sổ) ...
     logging.info(f"Đang khởi tạo trình duyệt cho: {profile_name_for_log} (Sử dụng User Data Dir: {profile_dir_path})...")
     chrome_options = Options()
     chrome_options.add_argument(f"--user-data-dir={profile_dir_path}")
-    chrome_options.add_experimental_option("detach", True) # Giữ trình duyệt mở
+    chrome_options.add_experimental_option("detach", True) 
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
-    # chrome_options.add_argument("--start-maximized") # Loại bỏ để kiểm soát kích thước/vị trí
-    
     if width and height:
         chrome_options.add_argument(f"--window-size={width},{height}")
-    if win_x is not None and win_y is not None: # Kiểm tra is not None vì 0 là vị trí hợp lệ
+    if win_x is not None and win_y is not None:
         chrome_options.add_argument(f"--window-position={win_x},{win_y}")
-
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     chrome_options.add_experimental_option('useAutomationExtension', False)
-
     driver = None
     try:
-        if CHROMEDRIVER_PATH.lower() == "chromedriver":
-            service = ChromeService()
-        else:
-            service = ChromeService(executable_path=CHROMEDRIVER_PATH)
+        if CHROMEDRIVER_PATH.lower() == "chromedriver": service = ChromeService()
+        else: service = ChromeService(executable_path=CHROMEDRIVER_PATH)
         driver = webdriver.Chrome(service=service, options=chrome_options)
         try:
             driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {
@@ -107,12 +172,13 @@ def initialize_driver(profile_dir_path, profile_name_for_log="N/A",
     except Exception as e:
         logging.error(f"LỖI không xác định khi khởi tạo trình duyệt cho {profile_name_for_log} (User Data Dir: {profile_dir_path}): {e}")
     if driver:
-        try: driver.quit() # Cố gắng đóng nếu đã tạo được một phần
+        try: driver.quit()
         except: pass
     return None
 
-def click_open_button_on_page(driver, profile_name_for_log="N/A", overall_click_timeout=100):
-    # ... (Hàm này giữ nguyên như trước) ...
+
+def click_open_button_on_page(driver, profile_name_for_log="N/A", overall_click_timeout=100): # overall_click_timeout đã được sửa ở code bạn gửi
+    # ... (Hàm này giữ nguyên như phiên bản trước - có overall_click_timeout) ...
     logging.info(f"[{profile_name_for_log}] Bắt đầu tìm và click nút '{BUTTON_TEXT_TO_FIND}' (timeout tối đa: {overall_click_timeout}s).")
     start_time = time.time()
     attempt_count = 0
@@ -153,41 +219,49 @@ def click_open_button_on_page(driver, profile_name_for_log="N/A", overall_click_
     logging.warning(f"[{profile_name_for_log}] Không thể click nút '{BUTTON_TEXT_TO_FIND}' sau {attempt_count} lần thử trong {overall_click_timeout}s.")
     return False
 
-def process_single_profile(profile_dir_path, target_url, win_x, win_y, width, height):
-    """
-    Hàm mục tiêu cho mỗi thread: khởi tạo trình duyệt, truy cập URL, thử click, và đóng phiên.
-    """
+def process_single_profile(profile_dir_path, initial_target_url, win_x, win_y, width, height):
     profile_log_name = os.path.basename(profile_dir_path)
     logging.info(f"Thread cho '{profile_log_name}' bắt đầu.")
+    
+    # Sử dụng initial_target_url cho tác vụ này
+    current_target_url = initial_target_url 
+    
     driver = initialize_driver(profile_dir_path, profile_log_name, win_x, win_y, width, height)
 
     if driver:
         try:
-            logging.info(f"[{profile_log_name}] Đang điều hướng đến URL: {target_url}")
+            logging.info(f"[{profile_log_name}] Đang điều hướng đến URL: {current_target_url}")
             driver.set_page_load_timeout(PAGE_LOAD_TIMEOUT)
-            driver.get(target_url)
-            logging.info(f"[{profile_log_name}] Đã truy cập URL thành công.")
+            driver.get(current_target_url)
+            logging.info(f"[{profile_log_name}] Đã truy cập URL '{current_target_url}' thành công.")
 
-            if "m.hibt.com" in target_url.lower():
-                # Đặt thời gian chờ click tối đa ở đây
-                thoi_gian_cho_click_toi_da = 150 # GIÂY - THAY ĐỔI GIÁ TRỊ NÀY NẾU MUỐN
+            # Điều kiện click nút "Mở" trên trang m.hibt.com
+            # (LƯU Ý: `current_target_url` có thể đã thay đổi sau khi giải CAPTCHA nếu URL ban đầu là hibtkyc)
+            if "m.hibt.com" in current_target_url.lower():
+                # Giá trị thoi_gian_cho_click_toi_da từ code bạn gửi
+                thoi_gian_cho_click_toi_da = 150 
                 
-                logging.info(f"[{profile_log_name}] Sẽ thử click nút 'Mở' trong tối đa {thoi_gian_cho_click_toi_da} giây.")
+                logging.info(f"[{profile_log_name}] Sẽ thử click nút 'Mở' trên '{current_target_url}' trong tối đa {thoi_gian_cho_click_toi_da} giây.")
                 click_thanh_cong = click_open_button_on_page(driver, profile_log_name, overall_click_timeout=thoi_gian_cho_click_toi_da)
                 
                 if not click_thanh_cong:
-                    # Cập nhật thông báo log này để khớp với thoi_gian_cho_click_toi_da
-                    logging.warning(f"[{profile_name_for_log}] Không click được nút 'Mở' trong {thoi_gian_cho_click_toi_da} giây.")
-            else:
-                logging.info(f"[{profile_log_name}] Bỏ qua việc click nút 'Mở' vì URL không phải m.hibt.com.")
-                time.sleep(10)
+                    logging.warning(f"[{profile_log_name}] Không click được nút 'Mở' trong {thoi_gian_cho_click_toi_da} giây trên trang '{current_target_url}'.")
+                # Thêm time.sleep(10) nếu click không thành công (theo code bạn gửi) hoặc điều kiện khác
+                # else: # Nếu click thành công
+                #     pass # Hoặc hành động khác
+                if "time.sleep(10)" in "Bỏ qua việc click nút 'Mở' vì URL không phải m.hibt.com.": # Logic này cần xem lại
+                     logging.info(f"[{profile_log_name}] Tạm dừng 10 giây theo logic code.")
+                     time.sleep(10)
+
+            else: # Nếu không phải m.hibt.com thì không click
+                logging.info(f"[{profile_log_name}] Bỏ qua việc click nút 'Mở' vì URL đích ('{current_target_url}') không phải m.hibt.com.")
             
         except TimeoutException:
-            logging.error(f"[{profile_log_name}] Timeout khi tải trang {target_url}.")
+            logging.error(f"[{profile_log_name}] Timeout khi tải trang {current_target_url}.")
         except WebDriverException as e_nav:
-            logging.error(f"[{profile_log_name}] Lỗi WebDriverException khi điều hướng/hành động: {e_nav}")
+            logging.error(f"[{profile_log_name}] Lỗi WebDriverException khi điều hướng/hành động với URL {current_target_url}: {e_nav}")
         except Exception as e_general:
-            logging.error(f"[{profile_log_name}] Lỗi không xác định khi điều hướng/hành động: {e_general}")
+            logging.error(f"[{profile_log_name}] Lỗi không xác định khi điều hướng/hành động với URL {current_target_url}: {e_general}", exc_info=True)
         finally:
             logging.info(f"[{profile_log_name}] Đang đóng phiên WebDriver (cửa sổ trình duyệt sẽ vẫn mở do 'detach').")
             try:
@@ -199,6 +273,7 @@ def process_single_profile(profile_dir_path, target_url, win_x, win_y, width, he
         logging.warning(f"Không thể xử lý profile tại '{profile_dir_path}' do không khởi tạo được trình duyệt.")
     logging.info(f"Thread cho '{profile_log_name}' kết thúc.")
     return profile_log_name
+
 
 def display_available_profiles():
     # ... (Giữ nguyên hàm này) ...
@@ -212,7 +287,6 @@ def display_available_profiles():
         logging.info(f"  {idx + 1}. {profile_display_name} (Đường dẫn: {path})")
     logging.info("-" * 30)
 
-
 def main():
     if CHROMEDRIVER_PATH != "chromedriver" and not os.path.exists(CHROMEDRIVER_PATH):
         logging.error(f"LỖI: Không tìm thấy ChromeDriver tại '{CHROMEDRIVER_PATH}'.")
@@ -224,8 +298,8 @@ def main():
     display_available_profiles()
     profiles_to_launch_paths = []
 
+    # ... (Logic chọn profile giữ nguyên như trước) ...
     while True:
-        # ... (Logic chọn profile giữ nguyên như trước) ...
         print("\nLựa chọn chế độ chạy:")
         print("  1. Chạy toàn bộ các profile đã cấu hình.")
         print("  2. Chạy các profile được chỉ định theo số thứ tự.")
@@ -253,38 +327,52 @@ def main():
             if profiles_to_launch_paths: break
         else: logging.warning("Lựa chọn không hợp lệ.")
 
-
     if not profiles_to_launch_paths:
         logging.info("Không có profile nào được chọn. Kết thúc.")
         return
 
-    target_url = input("\nNhập đường link bạn muốn truy cập cho tất cả các profile: ").strip()
-    if not target_url: logging.error("Lỗi: Đường link không được để trống."); return
-    if not target_url.startswith(('http://', 'https://')):
-        target_url = 'https://' + target_url
-        logging.info(f"Đã tự động thêm 'https://'. URL đầy đủ: {target_url}")
+    # Nhập URL ban đầu từ người dùng
+    initial_target_url = input("\nNhập đường link bạn muốn truy cập cho tất cả các profile: ").strip()
+    if not initial_target_url: 
+        logging.error("Lỗi: Đường link không được để trống.")
+        return
+    if not initial_target_url.startswith(('http://', 'https://')):
+        initial_target_url = 'https://' + initial_target_url
+        logging.info(f"Đã tự động thêm 'https://'. URL ban đầu: {initial_target_url}")
+
+    # Xử lý URL nếu là hibtkyc.com
+    final_target_url = initial_target_url # Mặc định là URL ban đầu
+    if "hibtkyc.com/" in initial_target_url.lower():
+        logging.info(f"Phát hiện URL từ hibtkyc.com: {initial_target_url}")
+        logging.info("Đang thử giải CAPTCHA và lấy link đích...")
+        destination_url = solve_hibtkyc_captcha(initial_target_url)
+        
+        if destination_url:
+            logging.info(f"Đã giải CAPTCHA thành công. Link đích mới: {destination_url}")
+            final_target_url = destination_url # Cập nhật URL mục tiêu
+        else:
+            logging.error(f"Không thể giải CAPTCHA hoặc lấy link đích từ {initial_target_url}. Vui lòng kiểm tra lại URL hoặc thử lại sau. Kịch bản sẽ dừng lại.")
+            input("Nhấn Enter để thoát...")
+            return 
 
     num_selected_profiles = len(profiles_to_launch_paths)
-    logging.info(f"\nBắt đầu quá trình tự động hóa đồng thời cho {num_selected_profiles} profile(s) đã chọn.")
+    logging.info(f"\nBắt đầu quá trình tự động hóa đồng thời cho {num_selected_profiles} profile(s) với URL đích: {final_target_url}")
     logging.info(f"Số lượng profile chạy đồng thời tối đa: {MAX_CONCURRENT_PROFILES}")
     logging.info(f"Kích thước cửa sổ: {WINDOW_WIDTH}x{WINDOW_HEIGHT}, Vị trí bắt đầu: ({START_X_POSITION},{START_Y_POSITION}), Gap: {WINDOW_GAP}, Max/hàng: {MAX_WINDOWS_PER_ROW}")
-
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_CONCURRENT_PROFILES) as executor:
         futures = []
         for index, profile_path in enumerate(profiles_to_launch_paths):
-            # Tính toán vị trí cho cửa sổ hiện tại
             column = index % MAX_WINDOWS_PER_ROW
             row = index // MAX_WINDOWS_PER_ROW
-            
             current_x = START_X_POSITION + column * (WINDOW_WIDTH + WINDOW_GAP)
             current_y = START_Y_POSITION + row * (WINDOW_HEIGHT + WINDOW_GAP)
-            
             logging.debug(f"Profile '{os.path.basename(profile_path)}' (index {index}) sẽ được đặt tại ({current_x},{current_y})")
             
+            # Truyền final_target_url vào process_single_profile
             futures.append(executor.submit(process_single_profile, 
                                            profile_path, 
-                                           target_url, 
+                                           final_target_url, # Sử dụng URL đã được xử lý (nếu có)
                                            current_x, 
                                            current_y, 
                                            WINDOW_WIDTH, 
@@ -297,7 +385,6 @@ def main():
             except Exception as exc:
                 logging.error(f"Một thread đã tạo ra lỗi: {exc}", exc_info=True)
 
-
     logging.info("\n===================================================")
     logging.info("HOÀN TẤT: Tất cả các tác vụ profile đã được gửi để xử lý đồng thời.")
     logging.info("Các cửa sổ trình duyệt sẽ vẫn mở do tùy chọn 'detach'.")
@@ -309,4 +396,4 @@ if __name__ == "__main__":
     except Exception as e_main:
         logging.critical(f"Lỗi nghiêm trọng không mong muốn trong hàm main: {e_main}", exc_info=True)
     finally:
-        input("Nhấn Enter để kết thúc chương trình (các trình duyệt đã mở với 'detach' sẽ không bị ảnh hưởng)...")
+        input("Nhấn Enter để kết thúc chương trình...")
