@@ -239,7 +239,7 @@ def process_single_profile(profile_dir_path, initial_target_url, win_x, win_y, w
             # (LƯU Ý: `current_target_url` có thể đã thay đổi sau khi giải CAPTCHA nếu URL ban đầu là hibtkyc)
             if "m.hibt.com" in current_target_url.lower():
                 # Giá trị thoi_gian_cho_click_toi_da từ code bạn gửi
-                thoi_gian_cho_click_toi_da = 15
+                thoi_gian_cho_click_toi_da = 10
                 
                 logging.info(f"[{profile_log_name}] Sẽ thử click nút 'Mở' trên '{current_target_url}' trong tối đa {thoi_gian_cho_click_toi_da} giây.")
                 click_thanh_cong = click_open_button_on_page(driver, profile_log_name, overall_click_timeout=thoi_gian_cho_click_toi_da)
